@@ -50,15 +50,15 @@
 
 static const char *TAG = "board";
 
-#define LCD_W 320
-#define LCD_H 480
+#define LCD_W 480                  /* landscape, USB-C on the right */
+#define LCD_H 320
 #define LCD_HOST SPI3_HOST
 #define LCD_SCLK GPIO_NUM_5
 #define LCD_MOSI GPIO_NUM_1
 #define LCD_DC GPIO_NUM_3
 #define LCD_BL GPIO_NUM_6
-#define DRAW_BUF_LINES 120      /* four bands to the screen (muse_lcd_bands.h) */
-#define LCD_CHUNK_BYTES (LCD_W * 8 * 2)
+#define DRAW_BUF_LINES 80       /* four bands to the screen (muse_lcd_bands.h) */
+#define LCD_CHUNK_BYTES (LCD_W * 4 * 2)
 
 #define I2C_SDA GPIO_NUM_8
 #define I2C_SCL GPIO_NUM_7
@@ -235,7 +235,10 @@ static lv_display_t *display_start(lv_indev_t **touch)
         esp_restart();
     }
     esp_lcd_panel_invert_color(s_panel, true);
-    esp_lcd_panel_mirror(s_panel, true, false);   /* portrait, as Waveshare's LVGL port sets it */
+    /* The panel scans 320x480 portrait. Swapping its axes turns it a quarter
+     * turn: landscape with USB-C on the right, as xiaozhi's board draws it. */
+    esp_lcd_panel_swap_xy(s_panel, true);
+    esp_lcd_panel_mirror(s_panel, false, false);
     esp_lcd_panel_disp_on_off(s_panel, true);
 
     esp_lv_adapter_config_t adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG();
@@ -267,11 +270,14 @@ static lv_display_t *display_start(lv_indev_t **touch)
     if (esp_lcd_new_panel_io_i2c(s_i2c, &tp_io_cfg, &tp_io) != ESP_OK) {
         return NULL;
     }
+    /* It reports portrait points; mirroring x and then swapping the axes
+     * (the driver's order) turns them with the panel. */
     const esp_lcd_touch_config_t tp_cfg = {
-        .x_max = LCD_W,
-        .y_max = LCD_H,
+        .x_max = LCD_H,
+        .y_max = LCD_W,
         .rst_gpio_num = GPIO_NUM_NC,
         .int_gpio_num = GPIO_NUM_NC,
+        .flags = { .swap_xy = 1, .mirror_x = 1 },
     };
     esp_lcd_touch_handle_t tp;
     if (esp_lcd_touch_new_i2c_ft5x06(tp_io, &tp_cfg, &tp) != ESP_OK) {
@@ -387,12 +393,12 @@ static const muse_board_t s_board = {
     .diagonal_in = 3.5f,
     .talk_button = "boot",
     .aux_button = "pwr",
-    /* BOOT, RST and PWR run down the right edge, USB-C at the bottom. From
-     * Waveshare's drawing: 54, 63 and 71 mm down the 92 mm board, whose
-     * screen starts 9.5 mm down at 6.5 px/mm, so BOOT is at y 292 and PWR
-     * at 403. */
-    .talk_hint = { LV_ALIGN_RIGHT_MID, -12, 52 },
-    .aux_hint = { LV_ALIGN_RIGHT_MID, -12, 163 },
+    /* BOOT, RST and PWR run along the top edge, left to right, with USB-C on
+     * the right. From Waveshare's drawing: 54, 63 and 71 mm across the 92 mm
+     * board, whose screen starts 9.5 mm in at 6.5 px/mm, so BOOT is at x 292
+     * and PWR at 403. */
+    .talk_hint = { LV_ALIGN_TOP_MID, 52, 5 },   /* on the header row */
+    .aux_hint = { LV_ALIGN_TOP_MID, 163, 5 },
     .frame_ms = 40,
     .init = init,
     .display_start = display_start,

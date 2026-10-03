@@ -59,6 +59,7 @@ static const char *TAG = "muse_ui";
 #define ART_BLANK_ROWS 3        /* Muse's art never reaches the grid's bottom rows */
 #define MINI_CELL_PX 2          /* Muse's grid cells over a reply that's read */
 #define ANSWER_MS 300           /* Muse making room for a reply, and back */
+#define WIDE_HEADER_PX 30       /* the wide layout's status, state and button icons */
 #define SPEAKER_PX 64
 #define SPEAKER_GROW_PX 8       /* how much the speaker button swells while held */
 #define SPEAKER_HOLD_MS 400     /* LVGL's long press */
@@ -87,6 +88,8 @@ static const char *TAG = "muse_ui";
 static int s_w, s_h;
 static bool s_small;
 static bool s_tall;         /* compact, with room above and below Muse (StickS3) */
+static bool s_wide;         /* compact landscape tall enough for a header row, with
+                             * replies beside Muse (Waveshare LCD-3.5) */
 static int s_canvas_px;     /* Muse's size on screen */
 static int s_dy;            /* full layout: offset from a 466 px tall screen */
 static lv_indev_t *s_indev;
@@ -151,9 +154,9 @@ static muse_mode_t s_last_mode = MUSE_MODE_COUNT;
  * to the top when it's only read, over a page.
  */
 typedef struct {
-    int px, y;                /* Muse's size and centre */
+    int px, x, y;             /* Muse's size and centre */
     int cols, lines;          /* the reply's page */
-    int w, h, top;            /* and where it goes */
+    int w, h, tx, top;        /* and where it goes: tx is its centre's x */
     lv_text_align_t align;
     lv_obj_t *hides[4];       /* what it covers */
 } answer_layout_t;
@@ -163,8 +166,8 @@ static answer_layout_t s_answers[2];
 static int s_answer = -1;       /* the layout showing, or -1 */
 static int s_page_for = -1;     /* the layout the reply's page is sized for */
 static int s_big_y;             /* Muse's centre at full size */
-static int s_muse_y;            /* and now */
-static int s_from_px, s_from_y, s_to_px, s_to_y;
+static int s_muse_x, s_muse_y;  /* and now */
+static int s_from_px, s_from_x, s_from_y, s_to_px, s_to_x, s_to_y;
 
 static const char *const MODE_NAMES[MUSE_MODE_COUNT] = {
     [MUSE_MODE_BOOT] = "WAKING UP",
@@ -423,7 +426,7 @@ static void set_mic_color(uint32_t color)
 static void build_button_icons(lv_obj_t *face)
 {
     const muse_button_hint_t *t = &muse_board->talk_hint, *a = &muse_board->aux_hint;
-    s_mic_icon = make_mic(face, s_tall ? 24 : s_small ? 12 : 26);
+    s_mic_icon = make_mic(face, s_tall ? 24 : s_wide ? 20 : s_small ? 12 : 26);
     lv_obj_align(s_mic_icon, t->align, t->x, t->y);
     set_mic_color(COLOR_DIM);
 
@@ -432,7 +435,8 @@ static void build_button_icons(lv_obj_t *face)
     if (a->align == LV_ALIGN_DEFAULT) {
         return;
     }
-    s_aux_icon = make_label(face, s_small ? &lv_font_montserrat_14 : &lv_font_montserrat_28, COLOR_DIM);
+    s_aux_icon = make_label(face, s_wide ? &lv_font_montserrat_20 : s_small ? &lv_font_montserrat_14 : &lv_font_montserrat_28,
+                            COLOR_DIM);
     lv_label_set_text(s_aux_icon, muse_board->touch ? LV_SYMBOL_POWER : LV_SYMBOL_LIST);
     lv_obj_align(s_aux_icon, a->align, a->x, a->y);
 }
@@ -571,14 +575,17 @@ static void move_muse_t(void *obj, int32_t t)
 {
     (void)obj;
     set_canvas_px(s_from_px + (s_to_px - s_from_px) * t / 256);
+    s_muse_x = s_from_x + (s_to_x - s_from_x) * t / 256;
     s_muse_y = s_from_y + (s_to_y - s_from_y) * t / 256;
-    lv_obj_align(s_canvas, LV_ALIGN_CENTER, 0, s_muse_y);
+    lv_obj_align(s_canvas, LV_ALIGN_CENTER, s_muse_x, s_muse_y);
 }
 
-/* Eases Muse to `px` centred at `y`, from wherever it is now. */
-static void move_muse(int px, int y)
+/* Eases Muse to `px` centred at (`x`, `y`), from wherever it is now. */
+static void move_muse(int px, int x, int y)
 {
     s_from_px = s_muse_src.header.w;
+    s_from_x = s_muse_x;
+    s_to_x = x;
     s_from_y = s_muse_y;
     s_to_px = px;
     s_to_y = y;
@@ -609,15 +616,15 @@ static void set_answer(int which)
             lv_obj_add_flag(l->hides[i], LV_OBJ_FLAG_HIDDEN);
         }
     }
-    if (!muse_board->round) {
+    if (s_ring && !muse_board->round) {
         lv_obj_set_flag(s_ring, LV_OBJ_FLAG_HIDDEN, l != NULL);   /* the reply runs past a rectangle's ring */
     }
     if (l) {
         lv_obj_set_size(s_reply_lbl, l->w, l->h);
-        lv_obj_align(s_reply_lbl, LV_ALIGN_CENTER, 0, l->top + l->h / 2);
+        lv_obj_align(s_reply_lbl, LV_ALIGN_CENTER, l->tx, l->top + l->h / 2);
         lv_obj_set_style_text_align(s_reply_lbl, l->align, 0);
     }
-    move_muse(l ? l->px : s_canvas_px, l ? l->y : s_big_y);
+    move_muse(l ? l->px : s_canvas_px, l ? l->x : 0, l ? l->y : s_big_y);
 }
 
 /* Whether a reply `w` px wide fits across the screen `y` px from the centre. */
@@ -655,8 +662,8 @@ static void set_reply_box(answer_layout_t *l, int cols, int lines, int top, int 
 static void add_hides(answer_layout_t *l, int n)
 {
     lv_area_t box = {
-        .x1 = s_w / 2 - l->w / 2, .y1 = s_h / 2 + l->top,
-        .x2 = s_w / 2 + l->w / 2 - 1, .y2 = s_h / 2 + l->top + l->h - 1,
+        .x1 = s_w / 2 + l->tx - l->w / 2, .y1 = s_h / 2 + l->top,
+        .x2 = s_w / 2 + l->tx + l->w / 2 - 1, .y2 = s_h / 2 + l->top + l->h - 1,
     };
     lv_obj_t *const hints[] = { s_mic_icon, s_aux_icon };
     for (size_t i = 0; i < 2; i++) {
@@ -789,6 +796,51 @@ static void on_ring_draw(lv_event_t *e)
     layer->_clip_area = clip;
 }
 
+/*
+ * The wide layout's answers: Muse steps to the left and the reply fills the
+ * rest, under the header row. Heard: Muse a size smaller, over a few lines to
+ * follow along. Read: Muse small, beside the biggest page that fits.
+ */
+static void build_answer_wide(lv_obj_t *face)
+{
+    const lv_font_t *font = &lv_font_unscii_16;
+    int cw = lv_font_get_glyph_width(font, 'M', ' ');
+    int pitch = lv_font_get_line_height(font) + CAPTION_LINE_SPACE;
+    int area_top = WIDE_HEADER_PX - s_h / 2;   /* under the header row */
+    int area_bottom = s_h / 2 - 24;            /* clear of the page dots */
+    int mid = (area_top + area_bottom) / 2;
+    static const int cells[2] = { [ANSWER_HEARD] = 3, [ANSWER_READ] = MINI_CELL_PX };
+    static const int max_lines[2] = { [ANSWER_HEARD] = 4, [ANSWER_READ] = 99 };
+
+    for (int i = 0; i < 2; i++) {
+        answer_layout_t *l = &s_answers[i];
+        l->px = MUSE_PX_W * cells[i];
+        l->x = -s_w / 2 + 8 + l->px / 2;
+        l->y = mid;
+        l->align = LV_TEXT_ALIGN_LEFT;
+        int left = 8 + l->px + 12, right = s_w - 12;
+        int cols = (right - left) / cw;
+        int lines = (area_bottom - area_top + CAPTION_LINE_SPACE) / pitch;
+        lines = lines < max_lines[i] ? lines : max_lines[i];
+        /* A third of the caption spare for characters wider than a byte. */
+        while ((cols + 1) * lines > MUSE_CAPTION_MAX * 2 / 3) {
+            lines--;
+        }
+        set_reply_box(l, cols, lines, 0, cw, pitch);
+        l->top = mid - l->h / 2;
+        l->tx = left + l->w / 2 - s_w / 2;
+        add_hides(l, 0);
+    }
+    ESP_LOGI(TAG, "reply pages: %d x %d heard, %d x %d read", s_answers[ANSWER_HEARD].cols,
+             s_answers[ANSWER_HEARD].lines, s_answers[ANSWER_READ].cols, s_answers[ANSWER_READ].lines);
+
+    s_reply_lbl = make_label(face, font, COLOR_CAPTION);
+    lv_obj_set_style_text_line_space(s_reply_lbl, CAPTION_LINE_SPACE, 0);
+    lv_label_set_long_mode(s_reply_lbl, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_remove_flag(s_reply_lbl, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_reply_lbl, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void build_screen(void)
 {
     lv_obj_t *scr = lv_screen_active();
@@ -844,7 +896,8 @@ static void build_screen(void)
     int cap_top = cap_bottom - cap_h;
     int meter_y = cap_top - 6 - METER_SEG_PX / 2;
     int art_bottom = meter_y - METER_SEG_PX / 2 - 4;
-    s_big_y = s_small ? 0 : art_bottom - (s_canvas_px / 2 - ART_BLANK_ROWS * (s_canvas_px / MUSE_PX_W));
+    s_big_y = s_wide ? WIDE_HEADER_PX / 2
+              : s_small ? 0 : art_bottom - (s_canvas_px / 2 - ART_BLANK_ROWS * (s_canvas_px / MUSE_PX_W));
 
     /* The character. */
     muse_image_init();
@@ -868,16 +921,35 @@ static void build_screen(void)
     lv_obj_set_flex_flow(status, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(status, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(status, s_small ? 4 : 8, 0);
-    lv_obj_align(status, LV_ALIGN_TOP_MID, 0, s_small ? 1 : 20 + s_dy);
+    if (s_wide) {
+        lv_obj_align(status, LV_ALIGN_TOP_LEFT, 10, 8);
+    } else {
+        lv_obj_align(status, LV_ALIGN_TOP_MID, 0, s_small ? 1 : 20 + s_dy);
+    }
     s_wifi_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_ble_icon = make_label(status, &lv_font_montserrat_14, COLOR_DIM);
     s_power_lbl = make_label(status, &lv_font_unscii_8, COLOR_DIM);
 
     /* The compact layout leaves the state to the avatar and the caption,
      * unless the screen is tall enough to fit it in small type above Muse. */
-    s_state_lbl = make_label(face, s_small ? &lv_font_unscii_8 : &lv_font_unscii_16, 0xffffff);
-    lv_obj_set_style_text_letter_space(s_state_lbl, s_small ? 1 : 2, 0);
-    lv_obj_align(s_state_lbl, LV_ALIGN_TOP_MID, 0, s_small ? 22 : 40 + s_dy);
+    bool big_state = !s_small || s_wide;
+    s_state_lbl = make_label(face, big_state ? &lv_font_unscii_16 : &lv_font_unscii_8, 0xffffff);
+    lv_obj_set_style_text_letter_space(s_state_lbl, big_state && !s_wide ? 2 : 1, 0);
+    int state_x = 0;
+    if (s_wide) {
+        /* Centred between the status (up to "+100%" after the Wi-Fi icon) and
+         * the leftmost button icon on the header row, so "RECONNECTING" clears
+         * both. */
+        int left = 70, right = s_w - 8;
+        const muse_button_hint_t *const hints[] = { &muse_board->talk_hint, &muse_board->aux_hint };
+        for (int i = 0; i < 2; i++) {
+            if (hints[i]->align == LV_ALIGN_TOP_MID && s_w / 2 + hints[i]->x - 16 < right) {
+                right = s_w / 2 + hints[i]->x - 16;
+            }
+        }
+        state_x = (left + right) / 2 - s_w / 2;
+    }
+    lv_obj_align(s_state_lbl, LV_ALIGN_TOP_MID, state_x, s_wide ? 7 : s_small ? 22 : 40 + s_dy);
     lv_obj_set_flag(s_state_lbl, LV_OBJ_FLAG_HIDDEN, s_small && !s_tall && s_h < 200);
 
     /* This gadget's own name, dim under the state while it's unpaired: with
@@ -885,12 +957,33 @@ static void build_screen(void)
      * Muse app. update_chrome() fills it in, shortens it to the hex tail on a
      * screen too narrow for the whole thing, and empties it once paired. */
     s_name_lbl = make_label(face, s_small ? &lv_font_unscii_8 : &lv_font_unscii_16, COLOR_DIM);
-    lv_obj_align(s_name_lbl, LV_ALIGN_TOP_MID, 0, s_small ? 32 : 60 + s_dy);
+    lv_obj_align(s_name_lbl, LV_ALIGN_TOP_MID, state_x, s_wide ? WIDE_HEADER_PX : s_small ? 32 : 60 + s_dy);
     /* Same rule as the state label: a square 128 px screen centres Muse over
      * these rows, so there's nowhere to put this without covering the face. */
     lv_obj_set_flag(s_name_lbl, LV_OBJ_FLAG_HIDDEN, s_small && !s_tall && s_h < 200);
 
-    s_caption_lbl = make_label(face, font_pick(caption_font(), &lv_font_unscii_8), COLOR_CAPTION);
+    s_caption_lbl = make_label(face, s_wide ? caption_font() : font_pick(caption_font(), &lv_font_unscii_8),
+                               COLOR_CAPTION);
+    if (s_wide) {
+        /* Two full-size lines over the bottom of the face, clear of the dots
+         * in the corner. Replies get their own page beside Muse. */
+        int line = lv_font_get_line_height(caption_font());
+        lv_obj_set_size(s_caption_lbl, s_w - 96, 2 * line + 2 + 4);
+        lv_obj_set_style_pad_ver(s_caption_lbl, 2, 0);
+        lv_obj_set_style_text_line_space(s_caption_lbl, 2, 0);
+        lv_obj_set_style_bg_color(s_caption_lbl, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(s_caption_lbl, LV_OPA_70, 0);
+        lv_label_set_long_mode(s_caption_lbl, LV_LABEL_LONG_MODE_DOTS);
+        lv_obj_align(s_caption_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
+
+        s_bar = lv_obj_create(face);
+        lv_obj_remove_style_all(s_bar);
+        lv_obj_set_size(s_bar, 0, 3);
+        lv_obj_set_style_bg_opa(s_bar, LV_OPA_COVER, 0);
+        lv_obj_align(s_bar, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+        build_answer_wide(face);
+        return;
+    }
     if (s_small) {
         /* Two lines over the bottom of the face, on a dark band so they stay
          * legible. A tall screen has room to keep them above the mic icon. */
@@ -1029,7 +1122,11 @@ static void build_overlays(void)
         lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(d, lv_color_hex(COLOR_DOT_OFF), 0);
         lv_obj_remove_flag(d, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, i ? 8 : -8, -14);
+        if (s_wide) {
+            lv_obj_align(d, LV_ALIGN_BOTTOM_RIGHT, i ? -14 : -30, -14);
+        } else {
+            lv_obj_align(d, LV_ALIGN_BOTTOM_MID, i ? 8 : -8, -14);
+        }
         s_dots[i] = d;
     }
 
@@ -1410,7 +1507,7 @@ static void update_status(muse_mode_t mode, float now)
     if (fresh) {
         lv_obj_t *lbl = answer >= 0 ? s_reply_lbl : s_caption_lbl;
 #if CONFIG_MUSE_CJK_FONT
-        if (s_small) {
+        if (s_small && !s_wide) {   /* the wide layout's captions are 16 px already */
             lv_obj_set_style_text_font(s_caption_lbl, muse_text_has_cjk(caption) ? caption_font() : &lv_font_unscii_8, 0);
         }
 #endif
@@ -1521,9 +1618,10 @@ esp_err_t muse_ui_start(void)
     s_w = muse_board->width;
     s_h = muse_board->height;
     /* The full layout assumes room for the 466 px board's header and bottom
-     * captions. Short landscape panels (BOX-3) need the compact layout too,
-     * as does anything narrower than its fixed 256 px captions. */
-    bool short_landscape = s_w > s_h && s_h < 320;
+     * captions. Shorter landscape panels (BOX-3, Waveshare LCD-3.5) need the
+     * compact layout too, as does anything narrower than its fixed 256 px
+     * captions. */
+    bool short_landscape = s_w > s_h && s_h < 466;
     s_small = s_h < 200 || s_w < 200 || short_landscape || s_w < 300;
     s_tall = s_small && s_h >= s_w + 64;
     /* Small screens keep room for the status line and button icons. A narrow
@@ -1532,6 +1630,12 @@ esp_err_t muse_ui_start(void)
     if (short_landscape) {
         /* Leave the header's first 40 rows and bottom captions clear. */
         s_canvas_px = s_h * 2 / 3;
+    }
+    /* Tall enough for one header row: status, state and button icons share
+     * it, and Muse gets the rest at whole pixels. */
+    s_wide = short_landscape && s_h >= 300;
+    if (s_wide) {
+        s_canvas_px = (s_h - WIDE_HEADER_PX) / MUSE_PX_W * MUSE_PX_W;
     }
     if (s_canvas_px > s_w) {
         s_canvas_px = s_w / MUSE_PX_W * MUSE_PX_W;
