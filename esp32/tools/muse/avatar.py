@@ -61,6 +61,7 @@ BOARDS = {
     "Espressif ESP32-S3-BOX-3": "box3",
     "Waveshare ESP32-S3-Touch-AMOLED-1.75C": "s3",
     "Waveshare ESP32-S3-Touch-AMOLED-1.75": "s3n",
+    "Waveshare ESP32-S3-Touch-LCD-3.5": "lcd35",
     "AIPI Lite": "aipi",
     "Waveshare ESP32-C6-Touch-AMOLED-1.8": "c6",
     "Seeed SenseCAP Watcher": "watcher",
@@ -73,7 +74,7 @@ BOARDS = {
     "Freenove FNK0104B": "fnk0104b",
     "Guition JC3248W535": "jc3248w535",
 }
-CHAT_BOARDS = ("s3", "s3n", "aipi", "box3", "sticks3", "watcher", "stopwatch", "cores3", "core2", "fnk0104b", "jc3248w535")
+CHAT_BOARDS = ("s3", "s3n", "lcd35", "aipi", "box3", "sticks3", "watcher", "stopwatch", "cores3", "core2", "fnk0104b", "jc3248w535")
 
 
 class Stop(Exception):
@@ -99,7 +100,7 @@ def open_board(port):
     if st is None:
         board.close()
         raise Stop(f"The board on {port} doesn't answer. Its firmware is probably older than serial chat: "
-                   "run this again with --board s3, aipi, sticks3, stopwatch, cores3, core2 or watcher to flash it first.", 2)
+                   "run this again with --board s3, lcd35, aipi, sticks3, stopwatch, cores3, core2 or watcher to flash it first.", 2)
     return board, st
 
 
@@ -320,7 +321,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--port", help="the board's serial port (found by itself when there's one board)")
     ap.add_argument("--board", choices=sorted(set(BOARDS.values())),
-                    help="the board, if it doesn't answer yet: flashes s3, aipi, box3, sticks3, stopwatch, cores3, core2 or watcher firmware with serial "
+                    help="the board, if it doesn't answer yet: flashes s3, lcd35, aipi, box3, sticks3, stopwatch, cores3, core2 or watcher firmware with serial "
                          "chat first, or with --reply, the firmware to build")
     ap.add_argument("--edit", metavar="CHANGE", help="ask Muse to change the avatar you have, not redraw it")
     ap.add_argument("--reply", metavar="FILE", help="use this reply from Muse instead of asking through the board")
