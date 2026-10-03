@@ -73,6 +73,16 @@ static const char *TAG = "link.image";
 #define JPEG_POOL_BYTES     3100
 // Largest block the decoder emits: a 16x16 MCU.
 #define JPEG_MCU_PIXELS     (16 * 16)
+// Boards with the full UI scale a centred JPEG to fit the screen: decoded at
+// the smallest power-of-two shrink still at least the fitted size into PSRAM,
+// then resampled. The decoded copy may take at most this much.
+#if CONFIG_HOMEHUB_LED_BACKEND_MUSE && CONFIG_SPIRAM
+#define FIT_JPEG            1
+#define FIT_STAGE_BYTES     (2 * 1024 * 1024)
+#define FIT_ROWS            16      // resampled and drawn this many rows at a time
+#else
+#define FIT_JPEG            0
+#endif
 
 typedef struct {
     char *url;
@@ -97,6 +107,11 @@ typedef struct {
     // JPEG output placement and one MCU converted for the panel.
     int x0, y0;
     uint16_t mcu[JPEG_MCU_PIXELS];
+#if FIT_JPEG
+    // While scaling to fit: the whole decoded image, native RGB565.
+    uint16_t *stage;
+    int stage_w, stage_h;
+#endif
 } fetch_t;
 
 // Boards with the full UI also take IMAGE_FETCH_CENTRE, which centres a JPEG down the
@@ -232,6 +247,21 @@ static UINT jpeg_out(JDEC *jd, void *bitmap, JRECT *rect) {
     int w = rect->right - rect->left + 1;
     int h = rect->bottom - rect->top + 1;
     const uint8_t *rgb = bitmap;
+#if FIT_JPEG
+    if (f->stage) {
+        for (int y = 0; y < h; y++) {
+            int sy = rect->top + y;
+            for (int x = 0; x < w; x++, rgb += 3) {
+                int sx = rect->left + x;
+                if (sx < f->stage_w && sy < f->stage_h) {
+                    f->stage[(size_t)sy * f->stage_w + sx] =
+                        ((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >> 3);
+                }
+            }
+        }
+        return 1;
+    }
+#endif
     for (int i = 0; i < w * h; i++, rgb += 3) {
         uint16_t px = ((rgb[0] & 0xF8) << 8) | ((rgb[1] & 0xFC) << 3) | (rgb[2] >> 3);
         f->mcu[i] = (uint16_t)((px >> 8) | (px << 8));
@@ -239,12 +269,107 @@ static UINT jpeg_out(JDEC *jd, void *bitmap, JRECT *rect) {
     return led_status_draw_rect(f->x0 + rect->left, f->y0 + rect->top, w, h, f->mcu);
 }
 
+#if FIT_JPEG
+// One channel of two RGB565 pixels, `t` of the way (0-256) from a to b.
+static inline int lerp_ch(int a, int b, int t) {
+    return a + (((b - a) * t) >> 8);
+}
+
+static inline uint16_t lerp565(uint16_t a, uint16_t b, int t) {
+    int r = lerp_ch(a >> 11, b >> 11, t);
+    int g = lerp_ch((a >> 5) & 0x3F, (b >> 5) & 0x3F, t);
+    int bl = lerp_ch(a & 0x1F, b & 0x1F, t);
+    return (uint16_t)(r << 11 | g << 5 | bl);
+}
+
+// Draws the staged image resampled (bilinear) to w x h at (x0, y0), a few
+// rows at a time, high byte first as led_status_draw_rect() takes them.
+static const char *draw_fitted(fetch_t *f, int x0, int y0, int w, int h) {
+    uint16_t *rows = heap_caps_malloc((size_t)w * FIT_ROWS * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (!rows) return "out of memory";
+    const int sw = f->stage_w, sh = f->stage_h;
+    const char *err = NULL;
+    for (int y = 0; y < h && !err; y += FIT_ROWS) {
+        int n = h - y < FIT_ROWS ? h - y : FIT_ROWS;
+        for (int r = 0; r < n; r++) {
+            // Source position of this pixel's centre, in 1/256ths.
+            int fy = (int)((((int64_t)(y + r) * 2 + 1) * sh * 256) / (2 * h)) - 128;
+            if (fy < 0) fy = 0;
+            int sy = fy >> 8, ty = fy & 0xFF;
+            const uint16_t *row0 = f->stage + (size_t)(sy < sh ? sy : sh - 1) * sw;
+            const uint16_t *row1 = f->stage + (size_t)(sy + 1 < sh ? sy + 1 : sh - 1) * sw;
+            uint16_t *out = rows + (size_t)r * w;
+            for (int x = 0; x < w; x++) {
+                int fx = (int)((((int64_t)x * 2 + 1) * sw * 256) / (2 * w)) - 128;
+                if (fx < 0) fx = 0;
+                int sx = fx >> 8, tx = fx & 0xFF;
+                int sx0 = sx < sw ? sx : sw - 1, sx1 = sx + 1 < sw ? sx + 1 : sw - 1;
+                uint16_t px = lerp565(lerp565(row0[sx0], row0[sx1], tx), lerp565(row1[sx0], row1[sx1], tx), ty);
+                out[x] = (uint16_t)((px >> 8) | (px << 8));
+            }
+        }
+        if (!led_status_draw_rect(x0, y0 + y, w, n, rows)) err = "display write failed";
+    }
+    free(rows);
+    return err;
+}
+
+// A centred JPEG, scaled to fill the screen one way and centred the other.
+static const char *draw_jpeg_fit(fetch_t *f, JDEC *jd, int *out_w, int *out_h, int *out_scale) {
+    int jw = jd->width, jh = jd->height;
+    int w, h;
+    if ((int64_t)jw * f->height >= (int64_t)jh * f->width) {
+        w = f->width;
+        h = (int)((int64_t)jh * f->width / jw);
+    } else {
+        h = f->height;
+        w = (int)((int64_t)jw * f->height / jh);
+    }
+    w = w > 0 ? w : 1;
+    h = h > 0 ? h : 1;
+    uint8_t scale = 0;
+    while (scale < 3 && (jw >> (scale + 1)) >= w && (jh >> (scale + 1)) >= h) {
+        scale++;
+    }
+    f->stage_w = (jw + (1 << scale) - 1) >> scale;
+    f->stage_h = (jh + (1 << scale) - 1) >> scale;
+    *out_w = w;
+    *out_h = h;
+    *out_scale = 1 << scale;
+    if ((size_t)f->stage_w * f->stage_h * sizeof(uint16_t) > FIT_STAGE_BYTES) {
+        return "JPEG is too large to scale";
+    }
+    f->stage = heap_caps_calloc((size_t)f->stage_w * f->stage_h, sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (!f->stage) return "out of memory";
+    JRESULT rc = jd_decomp(jd, jpeg_out, scale);
+    const char *err = NULL;
+    if (rc == JDR_OK) {
+        err = draw_fitted(f, (f->width - w) / 2, (f->height - h) / 2, w, h);
+    } else {
+        err = f->low_memory ? "memory ran low"
+            : rc == JDR_INP ? "download failed"
+            : rc == JDR_FMT3 ? "unsupported JPEG: use baseline, not progressive"
+            : "not a valid JPEG";
+    }
+    free(f->stage);
+    f->stage = NULL;
+    return err;
+}
+#endif
+
 static const char *draw_jpeg(fetch_t *f, int *out_w, int *out_h, int *out_scale) {
     void *pool = malloc(JPEG_POOL_BYTES);
     if (!pool) return "out of memory";
     const char *err = NULL;
     JDEC jd;
     JRESULT rc = jd_prepare(&jd, jpeg_in, pool, JPEG_POOL_BYTES, f);
+#if FIT_JPEG
+    if (rc == JDR_OK && CENTRED(f)) {
+        err = draw_jpeg_fit(f, &jd, out_w, out_h, out_scale);
+        free(pool);
+        return err;
+    }
+#endif
     if (rc == JDR_OK) {
         // Shrink by the smallest power of two that fits below `row`.
         int avail = f->height - TOP_ROW(f);

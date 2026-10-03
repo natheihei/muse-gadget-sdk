@@ -1272,8 +1272,13 @@ static char *build_register_json(void) {
         snprintf(desc, sizeof(desc),
                  "Download an image and draw it on the %dx%d %s. Takes a "
                  "baseline "
+#if CONFIG_HOMEHUB_LED_BACKEND_MUSE && CONFIG_SPIRAM
+                 "(not progressive) JPEG of any size, scaled on the device to "
+                 "fit the screen and centred, or raw RGB565 (high "
+#else
                  "(not progressive) JPEG, shrunk 1/2, 1/4 or 1/8 on the "
                  "device if needed and centred across, or raw RGB565 (high "
+#endif
                  "byte first, %d bytes per row).%s Plain http:// uses the least "
                  "device memory. Replies when the image is drawn. Hides the "
 #if CONFIG_HOMEHUB_LED_BACKEND_MUSE
