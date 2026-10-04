@@ -167,9 +167,69 @@ menu "Muse"
         help
             Push-to-talk turns go over a voice session of Muse's own, to the
             VM Home Link is paired with or one set up on the device with a
-            device token. Replies are text, shown as captions; start_tts in
-            muse_chat_session.cpp is where a TTS API of your own can speak
-            them. Needs PSRAM. Without it, voice notes go over Home Link's own
-            session to its paired VM and replies are shown as text.
+            device token. Replies are text, shown as captions, and spoken
+            when MUSE_TTS has a key. Needs PSRAM. Without it, voice notes go
+            over Home Link's own session to its paired VM and replies are
+            shown as text.
+
+    config MUSE_TTS
+        bool "Speak replies with OpenAI text-to-speech"
+        depends on MUSE_HATCH
+        default y
+        # api.openai.com sends GTS Root R4 cross-signed by GlobalSign Root CA,
+        # which the bundle no longer has; this lets GTS Root R4 itself anchor it.
+        select MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY if MBEDTLS_CERTIFICATE_BUNDLE
+        help
+            Each reply's text goes to OpenAI's speech API and the MP3 it
+            returns plays on the speaker, the captions following it. It needs
+            an API key: MUSE_TTS_API_KEY, or ">tts.key=sk-..." on the serial
+            console, which is kept in NVS and wins. Without a key, with the
+            speaker off, or if a request fails, replies are shown at reading
+            pace instead.
+
+    config MUSE_TTS_URL
+        string "Speech endpoint"
+        depends on MUSE_TTS
+        default "https://api.openai.com/v1/audio/speech"
+        help
+            Where the request goes. Any server that takes OpenAI's request
+            and answers with MP3 works: Kokoro-FastAPI or openedai-speech on
+            your network (plain http:// is fine), or a proxy of your own that
+            holds the key. A server other than OpenAI's is used without a key.
+
+    config MUSE_TTS_MODEL
+        string "Speech model"
+        depends on MUSE_TTS
+        default "gpt-4o-mini-tts"
+        help
+            gpt-4o-mini-tts, tts-1 (quicker) or tts-1-hd.
+
+    config MUSE_TTS_VOICE
+        string "Voice"
+        depends on MUSE_TTS
+        default "alloy"
+        help
+            One of OpenAI's voices: alloy, ash, ballad, coral, echo, fable,
+            nova, onyx, sage, shimmer, verse. ">tts.voice=NAME" on the serial
+            console changes it without a rebuild.
+
+    config MUSE_TTS_INSTRUCTIONS
+        string "Speaking style"
+        depends on MUSE_TTS
+        default ""
+        help
+            How to speak, such as "Speak cheerfully and briskly." Only
+            gpt-4o-mini-tts takes it; leave it empty for the other models.
+
+    config MUSE_TTS_API_KEY
+        string "API key"
+        depends on MUSE_TTS
+        default ""
+        help
+            Built into the firmware, where anyone holding the board can read
+            it. Better to leave it empty and send ">tts.key=sk-..." over the
+            serial console once: it's kept in NVS, encrypted if
+            CONFIG_HOMEHUB_NVS_ENCRYPTION is on. Use a project key with a
+            spending limit either way, and never commit it.
 
 endmenu

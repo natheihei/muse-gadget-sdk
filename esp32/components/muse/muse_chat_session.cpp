@@ -26,8 +26,11 @@
  *   2. POST /chat/stream with the transcript. The reply arrives as events on
  *      the connection's long-lived POST /chat/subscribe stream: one or more
  *      assistant messages, each delta.message_start / text_append / message_done.
- *   3. Each finished message is shown at reading pace (see start_tts to
- *      speak it with a TTS API of your own; Muse doesn't speak gadget replies).
+ *   3. Each finished message is spoken: its text goes to OpenAI's speech API
+ *      (muse_tts.h, CONFIG_MUSE_TTS) and the MP3 comes back, decoded here and
+ *      resampled to 16 kHz for the speaker. Muse doesn't speak gadget replies
+ *      itself. With the speaker off, no key, or a failed request, the text is
+ *      shown at reading pace instead.
  * A turn has no explicit end event; like Sidekick, it settles once every
  * message is done and nothing has arrived for a few seconds.
  *
@@ -69,6 +72,7 @@ extern "C" {
 #include "muse_account_api.h"
 #include "muse_link.h"
 #include "muse_settings.h"
+#include "muse_tts.h"
 #include "muse_wifi.h"
 }
 #include "muse_chat_priv.h"
@@ -236,6 +240,7 @@ struct turn_t {
     bool agent_busy;
     /* TTS */
     int tts_msg;             /* message being fetched (or shown, speaker off), or -1 */
+    uint32_t tts_req;        /* its muse_tts request */
     bool silent;             /* speaker off: tts_msg is paced by silence, not fetched */
     uint8_t *mp3;            /* MP3_BUF */
     size_t mp3_len;
@@ -953,6 +958,9 @@ static void turn_reset_streams(void)
 static void turn_finish(void)
 {
     turn_reset_streams();
+#if CONFIG_MUSE_TTS
+    muse_tts_cancel();
+#endif
     s_turn.phase = P_IDLE;
     s_turn.dict_id = s_turn.chat_id = 0;
     s_turn.tts_msg = -1;
@@ -1500,6 +1508,66 @@ static void on_chat_ack(stream_t *s)
 
 /* ---- Turn: speech ---- */
 
+/* Shows the message at reading pace: silence in place of speech paces the
+ * captions and ends the turn. */
+static void show_silently(msg_t &m)
+{
+    m.pcm_start = s_turn.pcm_out;
+    m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
+    s_turn.silent = true;
+}
+
+#if CONFIG_MUSE_TTS
+/* Asks for message i spoken. False to show it silently instead. */
+static bool request_speech(msg_t &m, int i)
+{
+    if (!muse_settings_speaker_on() || !s_turn.texts || !muse_tts_configured()) {
+        return false;
+    }
+    uint32_t req = muse_tts_start(s_turn.texts + i * TEXT_MAX);
+    if (!req) {
+        return false;
+    }
+    s_turn.tts_req = req;
+    s_turn.silent = false;
+    m.pcm_start = s_turn.pcm_out;
+    m.pcm_frames = 0;
+    s_turn.mp3_len = 0;
+    s_turn.mp3_ended = false;
+    s_turn.kbps = 0;
+    s_turn.down_rate = 0;
+    mp3dec_init(&s_turn.dec);
+    mark(M_TTS);
+    return true;
+}
+
+/* Moves the speech that has arrived into the MP3 buffer while it has room. */
+static void pump_speech(void)
+{
+    if (s_turn.tts_msg < 0 || s_turn.silent || s_turn.mp3_ended) {
+        return;
+    }
+    size_t n;
+    while (s_turn.mp3_len < MP3_BUF &&
+           (n = muse_tts_read(s_turn.tts_req, s_turn.mp3 + s_turn.mp3_len, MP3_BUF - s_turn.mp3_len)) > 0) {
+        mark(M_MP3);
+        s_turn.mp3_len += n;
+    }
+    muse_tts_status_t st = muse_tts_status(s_turn.tts_req);
+    if (st == MUSE_TTS_DONE) {
+        s_turn.mp3_ended = true;   /* decode() drains the rest, then finishes */
+    } else if (st == MUSE_TTS_FAILED) {
+        msg_t &m = s_turn.msgs[s_turn.tts_msg];
+        if (s_turn.pcm_out == m.pcm_start && !s_turn.mp3_len) {
+            ESP_LOGW(TAG, "no speech for message %s: showing it", m.id);
+            show_silently(m);
+        } else {
+            s_turn.mp3_ended = true;   /* what arrived still plays */
+        }
+    }
+}
+#endif
+
 static void start_tts(void)
 {
     if (s_turn.tts_msg >= 0) {
@@ -1511,26 +1579,21 @@ static void start_tts(void)
             continue;
         }
         /*
-         * Replies are text, shown at reading pace: silence in place of speech
-         * paces the captions and ends the turn. To speak them instead, send
-         * the message's text (s_turn.texts + i * TEXT_MAX, if texts was
-         * allocated; up to TEXT_MAX - 1 bytes) to a TTS API of your choice and
-         * play the MP3 it returns. In place of the silence below: keep
-         * m.tts = TTS_ACTIVE and s_turn.tts_msg = i, set s_turn.silent = false,
-         * m.pcm_start = s_turn.pcm_out, m.pcm_frames = 0, s_turn.mp3_len = 0,
-         * s_turn.mp3_ended = false, s_turn.kbps = 0, s_turn.down_rate = 0 and
-         * mp3dec_init(&s_turn.dec). Then, on this task, pass the MP3 to
-         * tts_data() as it arrives (it buffers up to MP3_BUF and drops the
-         * rest, so hold off while it's full) and set s_turn.mp3_ended at the
-         * end. decode() plays it at the speaker's volume, captions following,
-         * and finishes the message once it's drained.
+         * Spoken: pump_speech() moves the MP3 into s_turn.mp3 as it arrives,
+         * and decode() plays it at the speaker's volume, captions following,
+         * and finishes the message once it's drained. Otherwise it's shown.
          */
-        m.pcm_start = s_turn.pcm_out;
-        m.pcm_frames = (uint32_t)(m.len * MIC_RATE / TEXT_CHARS_PER_S);
         m.tts = TTS_ACTIVE;
         s_turn.tts_msg = i;
-        s_turn.silent = true;
-        ESP_LOGI(TAG, "showing message %s (%u chars)", m.id, (unsigned)m.len);
+#if CONFIG_MUSE_TTS
+        bool spoken = request_speech(m, i);
+#else
+        bool spoken = false;
+#endif
+        if (!spoken) {
+            show_silently(m);
+        }
+        ESP_LOGI(TAG, "%s message %s (%u chars)", spoken ? "speaking" : "showing", m.id, (unsigned)m.len);
         show_reply_start(m);
         return;
     }
@@ -1984,6 +2047,9 @@ static void hatch_task(void *arg)
         }
         if (s_turn.phase == P_WAIT_REPLY) {
             start_tts();
+#if CONFIG_MUSE_TTS
+            pump_speech();
+#endif
             decode();
         }
         if (!s_connected) {
@@ -2056,6 +2122,9 @@ extern "C" void muse_hatch_start(void)
         s.cap = NDJSON_LINE_MAX;
     }
     s_turn.tts_msg = -1;
+#if CONFIG_MUSE_TTS
+    muse_tts_init();
+#endif
     /* Stack in PSRAM: TLS, Noise and the MP3 decoder (~16 KB of scratch) all run here. */
     if (!s_cmds || !s_events || !s_in || !s_out || !s_turn.chunk || !s_turn.mp3 || (VOICE_NOTE && !s_turn.note) || !s_pcm || !s_pcm16 ||
         xTaskCreatePinnedToCoreWithCaps(hatch_task, "muse_chat", 48 * 1024, nullptr, 5, nullptr, 0,

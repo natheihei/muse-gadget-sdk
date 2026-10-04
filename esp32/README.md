@@ -231,11 +231,21 @@ things you can change:
 
 - **Shorter answers.** Ask for them in the message itself, such as "Answer in
   one sentence."
-- **Spoken answers.** Send each reply's text to a text-to-speech API of your
-  choice and play the audio it returns. On boards with PSRAM, `start_tts` in
-  [`components/muse/muse_chat_session.cpp`](components/muse/muse_chat_session.cpp)
-  is the spot: it has the reply text, and the MP3 decoder, speaker and volume
-  are already wired up there.
+- **Spoken answers.** Boards with the full UI and PSRAM can speak replies
+  through OpenAI's text-to-speech API ([`components/muse/muse_tts.c`](components/muse/muse_tts.c)).
+  Give it a key once over the serial console, where it stays in NVS instead
+  of the firmware image:
+
+  ```sh
+  idf.py -p PORT monitor     # then type: >tts.key=sk-...
+  ```
+
+  `>tts.voice=coral` picks another voice. The model, the default voice, a
+  speaking style and the endpoint are under Muse in `idf.py menuconfig`
+  (`CONFIG_MUSE_TTS_*`). Any server that takes OpenAI's request works there,
+  such as Kokoro-FastAPI on your own network, without a key. With no key, with
+  the speaker off, or when a request fails, replies are shown as captions as
+  before. Use a project key with a spending limit.
 
 A few things worth knowing:
 

@@ -78,6 +78,10 @@ session, so push-to-talk sends your voice note over its control session to the
 Muse it's paired with, and the reply scrolls past as text. It can't show images either: the UI holds a whole image in
 PSRAM, where the ideaspark draws one straight to its screen.
 
+Boards with the full UI and PSRAM show Muse's replies as captions, and speak
+them too once you give them an OpenAI API key (`CONFIG_MUSE_TTS`, see the
+README's "Spoken answers").
+
 The SenseCAP Indicator's sensors hang off its RP2040, which passes the
 readings to the ESP32-S3. The D1S and D1Pro have CO2 and tVOC sensors built
 in, and temperature and humidity come from the Grove AHT20 in the box (plug it

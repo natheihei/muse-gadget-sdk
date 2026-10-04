@@ -157,6 +157,16 @@ static void run_command(char *cmd)
         if (muse_settings_set_hatch_token(v, cmd[11] == '+') != ESP_OK) {
             res = "error: token too long";
         }
+#if CONFIG_MUSE_TTS
+    } else if (!strcmp(cmd, "tts.key")) {
+        if (muse_settings_set_tts_key(v) != ESP_OK) {
+            res = "error: key too long";
+        }
+    } else if (!strcmp(cmd, "tts.voice")) {
+        if (muse_settings_set_tts_voice(v) != ESP_OK) {
+            res = "error: voice name too long";
+        }
+#endif
     } else if (!strcmp(cmd, "hatch.test")) {
         muse_hatch_test();
     } else if (!strcmp(cmd, "test.loopback")) {
@@ -176,7 +186,7 @@ static void run_command(char *cmd)
     }
 
     /* Never echo secrets back. */
-    bool secret = !strcmp(cmd, "wifi.pass") || !strncmp(cmd, "hatch.token", 11);
+    bool secret = !strcmp(cmd, "wifi.pass") || !strncmp(cmd, "hatch.token", 11) || !strcmp(cmd, "tts.key");
     snprintf(s_last, sizeof(s_last), "%s: %s", cmd, res);
     ESP_LOGI(TAG, "cmd %s%s%s -> %s", cmd, secret ? "" : "=", secret ? "" : v, res);
     muse_state_poke();
