@@ -27,7 +27,7 @@ static const char *TAG = "muse_pmu";
 #define REG_STATUS2 0x01        /* bits[6:5] 01 = charging */
 #define REG_COMMON_CFG 0x10     /* bit0 = soft power-off */
 #define REG_IRQ_LEVEL 0x27      /* bits[3:2] power-key hold-to-off time */
-#define REG_ADC_ENABLE 0x30     /* bit0 = battery voltage */
+#define REG_ADC_ENABLE 0x30     /* bit0 = battery voltage, bit1 = TS pin */
 #define REG_VBAT_H 0x34         /* bits[4:0]; 1 mV per count with REG_VBAT_L */
 #define REG_VBAT_L 0x35
 #define REG_INTEN1 0x40        /* three enable registers, then three status */
@@ -36,6 +36,10 @@ static const char *TAG = "muse_pmu";
 #define REG_INTSTS2 0x49
 #define REG_DCDC_ONOFF 0x80     /* bits[4:0] = DCDC5..1 */
 #define REG_LDO_ONOFF0 0x90     /* ALDO1-4, BLDO1-2, CPUSLDO, DLDO1 from bit0 */
+#define REG_IPRECHG 0x61        /* bits[3:0], 25 mA a step */
+#define REG_ICC 0x62            /* bits[4:0], 25 mA a step to 200, then 100 mA */
+#define REG_ITERM 0x63          /* bits[3:0], 25 mA a step; bit4 enables termination */
+#define REG_CV 0x64             /* bits[2:0]: 1 = 4.0 V, 2 = 4.1, 3 = 4.2, 4 = 4.35, 5 = 4.4 */
 #define REG_LDO_ONOFF1 0x91     /* bit0 = DLDO2 */
 #define REG_BAT_PERCENT 0xA4
 
@@ -117,6 +121,39 @@ esp_err_t muse_pmu_keep_rails(uint8_t dcdc, uint16_t ldo)
     ESP_RETURN_ON_ERROR(wr(REG_LDO_ONOFF1, ldo1_new), TAG, "ldo1 off");
     ESP_LOGI(TAG, "rails: DCDC %02x -> %02x, LDO %02x %02x -> %02x %02x", dc & 0x1F, dc_new & 0x1F, ldo0,
              ldo1 & 0x01, ldo0_new, ldo1_new & 0x01);
+    return ESP_OK;
+}
+
+/* Replaces the bits of `mask` in `reg` with `val`. */
+static esp_err_t update(uint8_t reg, uint8_t mask, uint8_t val)
+{
+    uint8_t v;
+    ESP_RETURN_ON_ERROR(rd(reg, &v), TAG, "read %02x", reg);
+    return wr(reg, (v & ~mask) | (val & mask));
+}
+
+esp_err_t muse_pmu_set_charger(int cc_ma, int cv_mv, int pre_ma, int term_ma, bool ts_sensor)
+{
+    static const int cv_codes[] = { 4000, 4100, 4200, 4350, 4400 };
+    int cv = 0;
+    for (int i = 0; i < 5; i++) {
+        if (cv_mv == cv_codes[i]) {
+            cv = i + 1;
+        }
+    }
+    bool cc_ok = cc_ma >= 0 && (cc_ma <= 200 ? cc_ma % 25 == 0 : cc_ma <= 1000 && cc_ma % 100 == 0);
+    ESP_RETURN_ON_FALSE(s_dev, ESP_ERR_INVALID_STATE, TAG, "no PMU");
+    ESP_RETURN_ON_FALSE(cv && cc_ok && pre_ma >= 0 && pre_ma <= 200 && pre_ma % 25 == 0 && term_ma >= 0 &&
+                            term_ma <= 200 && term_ma % 25 == 0,
+                        ESP_ERR_INVALID_ARG, TAG, "charger setting out of range");
+    int icc = cc_ma <= 200 ? cc_ma / 25 : 8 + (cc_ma - 200) / 100;
+    ESP_RETURN_ON_ERROR(update(REG_ADC_ENABLE, 0x02, ts_sensor ? 0x02 : 0), TAG, "TS pin");
+    ESP_RETURN_ON_ERROR(update(REG_IPRECHG, 0x0F, pre_ma / 25), TAG, "pre-charge current");
+    ESP_RETURN_ON_ERROR(update(REG_ICC, 0x1F, icc), TAG, "charge current");
+    ESP_RETURN_ON_ERROR(update(REG_ITERM, 0x0F, term_ma / 25), TAG, "end-of-charge current");
+    ESP_RETURN_ON_ERROR(update(REG_CV, 0x07, cv), TAG, "charge voltage");
+    ESP_LOGI(TAG, "charger: %d mA to %d mV (pre %d mA, end %d mA), TS pin %s", cc_ma, cv_mv, pre_ma, term_ma,
+             ts_sensor ? "on" : "off");
     return ESP_OK;
 }
 

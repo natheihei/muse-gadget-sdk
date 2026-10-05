@@ -18,9 +18,9 @@
  * Waveshare ESP32-S3-Touch-LCD-3.5 (and its -C variant): ESP32-S3R8 (8 MB
  * octal PSRAM), 16 MB flash, 3.5" 320x480 ST7796 IPS LCD on SPI with FT6336
  * touch, ES8311 codec with one mic and a speaker header, AXP2101 PMU, TCA9554
- * expander. The LCD's reset is the expander's EXIO1. Waveshare's examples read
- * PWR only through the AXP2101, so BOOT talks and PWR is read from the PMU's
- * key latch, as on the AMOLED-1.75.
+ * expander. The LCD's reset is the expander's EXIO1. PWR goes to the AXP2101
+ * and, per Waveshare's wiki, to EXIO6; BOOT talks and PWR is read from the
+ * PMU's key latch, as on the AMOLED-1.75.
  *
  * Pins and the panel's init sequence are from Waveshare's examples
  * (waveshareteam/ESP32-S3-Touch-LCD-3.5, ESP-IDF/01_factory/components/esp_port)
@@ -159,6 +159,13 @@ static esp_err_t init(void)
     err = muse_pmu_keep_rails(BIT(0), BIT(0));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "unused rails left on (%s)", esp_err_to_name(err));
+    }
+    /* The MX1.25 battery has no thermistor, and Waveshare's examples say the
+     * TS pin must not be measured then or charging goes wrong. Their charger
+     * settings too, which the PMU forgets whenever it loses power. */
+    err = muse_pmu_set_charger(200, 4100, 50, 25, false);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "charger left at its defaults (%s)", esp_err_to_name(err));
     }
     return ESP_OK;
 }

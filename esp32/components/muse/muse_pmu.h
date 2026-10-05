@@ -43,6 +43,13 @@ esp_err_t muse_pmu_init(i2c_master_bus_handle_t bus, bool key_irqs);
  * in bit 8. Turns nothing on. */
 esp_err_t muse_pmu_keep_rails(uint8_t dcdc, uint16_t ldo);
 
+/* Charges at cc_ma (25 mA steps to 200, then 100 mA steps to 1000) up to
+ * cv_mv (4000, 4100, 4200, 4350 or 4400), with pre-charge and end-of-charge
+ * currents in 25 mA steps to 200. ts_sensor false stops the PMU measuring
+ * the battery temperature pin, which a cell without a thermistor needs to
+ * charge normally. */
+esp_err_t muse_pmu_set_charger(int cc_ma, int cv_mv, int pre_ma, int term_ma, bool ts_sensor);
+
 /* Returns and clears latched MUSE_PMU_KEY_* events. */
 unsigned muse_pmu_poll_key(void);
 
