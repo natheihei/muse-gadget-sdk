@@ -1349,6 +1349,58 @@ static char *build_register_json(void) {
     }
 #endif
 
+#if CONFIG_MUSE_LUA
+    // The API itself is in lua.help (components/muse/muse_lua_api.md), so it
+    // matches this firmware and doesn't weigh on every registration.
+    add_command(commands, "lua.help",
+                "Get the guide to the Lua apps this gadget runs on its touch "
+                "screen (lua.run): the screen, the Lua API, rules and an "
+                "example. Read it before writing an app.",
+                nullptr, nullptr);
+    cJSON *lua_required = cJSON_CreateObject();
+    cJSON_AddItemToObject(lua_required, "script",
+                          string_param("The app: Lua 5.4 source, under 8 KB, "
+                                       "using the API from lua.help."));
+    cJSON *lua_optional = cJSON_CreateObject();
+    cJSON_AddItemToObject(lua_optional, "title",
+                          string_param("Short title for the top bar."));
+    cJSON_AddItemToObject(lua_optional, "source",
+                          string_param("Where you saved the script in your "
+                                       "workspace; lua.status reports it."));
+    add_command(commands, "lua.run",
+                "Run a Lua app on the gadget's touch screen, in place of any "
+                "app running, until the person closes it. Call lua.help first "
+                "for the API. Save the script as a file in your workspace "
+                "first and send its path as source, alongside script: the gadget doesn't keep "
+                "apps, so edit and resend that file to change or reuse one. "
+                "Replies a second after the app starts, with its log, or with "
+                "the Lua error and line to fix and resend.",
+                lua_required, lua_optional);
+    cJSON_AddNumberToObject(
+        cJSON_GetObjectItem(commands, "lua.run"), "timeout_ms", 15000);
+    cJSON *call_required = cJSON_CreateObject();
+    cJSON_AddItemToObject(call_required, "name",
+                          string_param("One of the functions the app exposes."));
+    cJSON *call_optional = cJSON_CreateObject();
+    cJSON_AddItemToObject(call_optional, "args",
+                          string_param("Its arguments as a JSON array, such as [2]."));
+    add_command(commands, "lua.call",
+                "Call a function the Lua app on the gadget's screen exposes "
+                "(lua.run's reply and lua.status list them), such as next "
+                "when the person asks by voice for the next step. Replies "
+                "with what it returns; an error doesn't stop the app. One at a "
+                "time: wait for the reply before the next.",
+                call_required, call_optional);
+    add_command(commands, "lua.stop",
+                "Close the Lua app on the gadget's screen.",
+                nullptr, nullptr);
+    add_command(commands, "lua.status",
+                "Whether a Lua app is running on the gadget, its title and "
+                "source file, the functions lua.call can call, its error if "
+                "it stopped on one, and its recent log lines.",
+                nullptr, nullptr);
+#endif
+
 #if CONFIG_HOMEHUB_VOICE
     cJSON *volume_optional = cJSON_CreateObject();
     cJSON *volume_param = cJSON_CreateObject();

@@ -26,6 +26,9 @@
 #include "muse_ble.h"
 #include "muse_chat.h"
 #include "muse_input.h"
+#if CONFIG_MUSE_LUA
+#include "muse_lua.h"
+#endif
 #include "muse_settings.h"
 #include "muse_state.h"
 #include "muse_ui.h"
@@ -86,6 +89,11 @@ void muse_app_run(const muse_board_t *board)
     }
 
     muse_hatch_start();
+#if CONFIG_MUSE_LUA
+    if (muse_lua_start() != ESP_OK) {
+        ESP_LOGE(TAG, "Lua apps unavailable");
+    }
+#endif
     /* Home Link owns the radios; these just hand it the saved settings. */
     muse_wifi_apply();
     muse_ble_apply();

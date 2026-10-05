@@ -159,6 +159,19 @@ menu "Muse"
             GPIO, and set that GPIO here. -1 leaves push-to-talk recording
             silence.
 
+    config MUSE_LUA
+        bool "Lua apps from Muse"
+        depends on MUSE_ENABLED && SPIRAM
+        default n
+        help
+            Muse can send the gadget a Lua app (the lua.run command), which
+            runs on the touch screen under a top bar with its title, a mic
+            and a button that closes it, with timers, touch and a beep.
+            Lua 5.4 (components/lua) adds about 250 KB to the app; each app
+            gets up to 1 MB of PSRAM. muse_lua_api.md is what Muse is told.
+            Laid out for touch screens about 480x320 (the Waveshare
+            ESP32-S3-Touch-LCD-3.5).
+
     config MUSE_HATCH
         bool "Muse's own voice session"
         depends on MUSE_ENABLED

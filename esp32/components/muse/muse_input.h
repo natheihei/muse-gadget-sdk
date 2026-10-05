@@ -46,5 +46,9 @@ typedef struct {
 /* PTT events are posted to `queue` (items are muse_input_event_t). */
 esp_err_t muse_input_start(QueueHandle_t queue);
 
+/* A touch push-to-talk button (a Lua app's top bar), from any task: posts the
+ * talk button going down or up, once each way. */
+void muse_input_touch_talk(bool down);
+
 /* Plays the goodbye animation and powers off (from the input task). */
 void muse_input_request_power_off(void);

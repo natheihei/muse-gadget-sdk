@@ -129,6 +129,7 @@ static uint16_t *s_image_buf;
 static lv_area_t s_image_area;
 static bool s_image_dirty;
 static bool s_ready;
+static bool s_covered;      /* a Lua app's screen is over the face (muse_lua_ui.c) */
 
 static float s_level;
 static int s_shown_state = -1;
@@ -374,7 +375,7 @@ static void invalidate_muse(void)
 static lv_obj_t *make_label(lv_obj_t *parent, const lv_font_t *font, uint32_t color);
 
 /* A microphone from primitives: LVGL's symbol font has none. */
-static lv_obj_t *make_mic(lv_obj_t *parent, int size)
+lv_obj_t *muse_ui_make_mic(lv_obj_t *parent, int size)
 {
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_remove_style_all(box);
@@ -413,10 +414,10 @@ static lv_obj_t *make_mic(lv_obj_t *parent, int size)
     return box;
 }
 
-static void set_mic_color(uint32_t color)
+void muse_ui_mic_color(lv_obj_t *mic, uint32_t color)
 {
-    for (uint32_t i = 0; i < lv_obj_get_child_count(s_mic_icon); i++) {
-        lv_obj_t *part = lv_obj_get_child(s_mic_icon, i);
+    for (uint32_t i = 0; i < lv_obj_get_child_count(mic); i++) {
+        lv_obj_t *part = lv_obj_get_child(mic, i);
         lv_obj_set_style_bg_color(part, lv_color_hex(color), 0);
         lv_obj_set_style_arc_color(part, lv_color_hex(color), LV_PART_MAIN);
     }
@@ -426,9 +427,9 @@ static void set_mic_color(uint32_t color)
 static void build_button_icons(lv_obj_t *face)
 {
     const muse_button_hint_t *t = &muse_board->talk_hint, *a = &muse_board->aux_hint;
-    s_mic_icon = make_mic(face, s_tall ? 24 : s_wide ? 20 : s_small ? 12 : 26);
+    s_mic_icon = muse_ui_make_mic(face, s_tall ? 24 : s_wide ? 20 : s_small ? 12 : 26);
     lv_obj_align(s_mic_icon, t->align, t->x, t->y);
-    set_mic_color(COLOR_DIM);
+    muse_ui_mic_color(s_mic_icon, COLOR_DIM);
 
     /* Without touch the aux button opens the menu rather than sleeping. A board
      * that leaves aux_hint out has no button to put an icon beside. */
@@ -1074,6 +1075,7 @@ static void image_sync(void)
         muse_menu_close();
         lv_image_set_src(s_image, &s_image_dsc);
         lv_obj_remove_flag(s_image, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_image);   /* over a Lua app's screen too; a tap goes back to it */
         muse_state_set_asleep(false);
     }
     if (s_image_dirty) {
@@ -1431,7 +1433,7 @@ static void update_status(muse_mode_t mode, float now)
         } else {
             lv_obj_set_style_bg_color(s_bar, lv_color_hex(accent), 0);
         }
-        set_mic_color(mode == MUSE_MODE_LISTENING ? accent : COLOR_DIM);   /* lights up while recording */
+        muse_ui_mic_color(s_mic_icon, mode == MUSE_MODE_LISTENING ? accent : COLOR_DIM);   /* lights up while recording */
         s_shown_state = (int)mode;
         s_shown_lit = -1;
     }
@@ -1583,6 +1585,9 @@ static void frame_tick(lv_timer_t *timer)
         return;
     }
     update_chrome(now);
+    if (s_covered) {
+        return;   /* a Lua app has the screen */
+    }
     if (muse_menu_tick(now)) {
         image_hide_locked();
         return;   /* the menu covers the face */
@@ -1689,6 +1694,11 @@ void muse_ui_set_swipe_enabled(bool enabled)
     lv_obj_set_flag(s_tv, LV_OBJ_FLAG_SCROLLABLE, enabled);
     s_shown_page = -1;
     s_next_settings_tick = 0;
+}
+
+void muse_ui_set_covered(bool covered)
+{
+    s_covered = covered;
 }
 
 void muse_ui_preview_brightness(int pct)

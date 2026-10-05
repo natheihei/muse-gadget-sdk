@@ -308,6 +308,25 @@ float muse_audio_level(const int16_t *mono, size_t frames)
     return l < 0 ? 0 : (l > 1 ? 1 : l);
 }
 
+void muse_audio_tone(int freq, int ms)
+{
+    static int16_t buf[MUSE_AUDIO_CHUNK];
+    int total = MUSE_AUDIO_RATE * ms / 1000;
+    int fade = MUSE_AUDIO_RATE * 5 / 1000;   /* no click at either end */
+    float phase = 0;
+    for (int done = 0; done < total;) {
+        int n = total - done < MUSE_AUDIO_CHUNK ? total - done : MUSE_AUDIO_CHUNK;
+        for (int i = 0; i < n; i++) {
+            int at = done + i;
+            float env = at < fade ? (float)at / fade : total - at < fade ? (float)(total - at) / fade : 1.0f;
+            phase += 2.0f * (float)M_PI * freq / MUSE_AUDIO_RATE;
+            buf[i] = (int16_t)(sinf(phase) * env * 9000.0f);
+        }
+        muse_audio_write(buf, n);
+        done += n;
+    }
+}
+
 void muse_audio_chirp(int rising)
 {
     enum { MS = 90, N = MUSE_AUDIO_RATE * MS / 1000 };

@@ -38,6 +38,10 @@ float muse_voice_monitor_db(void);
 /* Plays a short chirp at the current volume (when idle). */
 void muse_voice_request_chirp(void);
 
+/* Plays count tones of freq Hz for ms each, gap ms apart, at the current
+ * volume, once nothing else is playing (a Lua app's sound.beep). */
+void muse_voice_request_beep(int freq, int ms, int count, int gap_ms);
+
 /* Runs muse_audio_loopback_test() at the current volume (when idle); results go to the log. */
 void muse_voice_request_loopback(void);
 

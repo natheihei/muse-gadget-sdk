@@ -84,6 +84,10 @@ void muse_state_set_as_if_battery(bool on);
 void muse_state_poke(void);
 float muse_state_idle_secs(void);
 
+/* A Lua app is showing: no auto-sleep (a button can still sleep the screen). */
+void muse_state_set_keep_awake(bool on);
+bool muse_state_keep_awake(void);
+
 /* Screen sleep (display dark, rendering paused). Waking also pokes. */
 void muse_state_set_asleep(bool asleep);
 bool muse_state_asleep(void);

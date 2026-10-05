@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "lvgl.h"
 
 /*
  * Bring up the display and build the UI: the avatar on the first tile,
@@ -38,6 +39,11 @@ void muse_ui_show_face(void);
 void muse_ui_set_swipe_enabled(bool enabled);
 /* Temporarily applies a brightness while a slider is dragged. */
 void muse_ui_preview_brightness(int pct);
+/* A Lua app's screen covers the face (muse_lua_ui.c): the face stops drawing. */
+void muse_ui_set_covered(bool covered);
+/* The face's microphone icon, made of primitives, and its colour. */
+lv_obj_t *muse_ui_make_mic(lv_obj_t *parent, int size);
+void muse_ui_mic_color(lv_obj_t *mic, uint32_t color);
 
 /*
  * display.draw_url, from any task. An image covers the face until a tap, a

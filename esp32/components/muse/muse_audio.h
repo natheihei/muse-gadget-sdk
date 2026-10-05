@@ -58,5 +58,8 @@ float muse_audio_dbfs(const int16_t *mono, size_t frames);
 /* RMS of a buffer mapped to a 0..1 perceptual level. */
 float muse_audio_level(const int16_t *mono, size_t frames);
 
+/* A plain tone with soft edges, blocking while it plays. */
+void muse_audio_tone(int freq, int ms);
+
 /* Short UI chirp: rising for "go", falling for "done". */
 void muse_audio_chirp(int rising);

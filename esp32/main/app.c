@@ -71,6 +71,9 @@
 #if CONFIG_MUSE_WATCHER_CAMERA
 #include "boards/watcher_camera.h"
 #endif
+#if CONFIG_MUSE_LUA
+#include "muse_lua.h"
+#endif
 #if CONFIG_MUSE_ENABLED
 #include "muse_glue.h"
 // Muse joins Wi-Fi from its own settings, before or without pairing.
@@ -1584,6 +1587,21 @@ static void watcher_camera_capture_task(void *arg) {
 }
 #endif
 
+#if CONFIG_MUSE_LUA
+// ---- Lua apps (lua.*, components/muse/muse_lua.c) ---------------------------
+
+typedef struct {
+    noise_ctrl_session_generation_t session_generation;
+    char request_id[64];
+} lua_cmd_ctx_t;
+
+static void lua_cmd_done(void *arg, cJSON *result) {
+    lua_cmd_ctx_t *ctx = arg;
+    noise_ctrl_send_command_result(ctx->session_generation, ctx->request_id, result);
+    free(ctx);
+}
+#endif
+
 // ---- WebSocket command callbacks -------------------------------------------
 
 typedef enum {
@@ -1888,6 +1906,20 @@ static cJSON *on_ws_command(
         cJSON *async = cJSON_CreateObject();
         cJSON_AddBoolToObject(async, "_async", true);
         return async;
+    }
+#endif
+#if CONFIG_MUSE_LUA
+    if (strncmp(command, "lua.", 4) == 0) {
+        lua_cmd_ctx_t *ctx = calloc(1, sizeof(*ctx));
+        if (!ctx) return command_error("out_of_memory", "failed to allocate");
+        ctx->session_generation = session_generation;
+        strncpy(ctx->request_id, request_id, sizeof(ctx->request_id) - 1);
+        if (muse_lua_command(command, params, lua_cmd_done, ctx)) {
+            cJSON *async = cJSON_CreateObject();
+            cJSON_AddBoolToObject(async, "_async", true);
+            return async;   // lua_cmd_done sends the result, perhaps already has
+        }
+        free(ctx);
     }
 #endif
 #if CONFIG_HOMEHUB_VOICE

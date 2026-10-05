@@ -39,6 +39,7 @@ static volatile float s_progress;
 static volatile int64_t s_last_poke_us;
 static volatile int64_t s_happy_until_us;
 static volatile bool s_asleep;
+static volatile bool s_keep_awake;
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static char s_caption[MUSE_CAPTION_MAX];
@@ -218,6 +219,16 @@ void muse_state_set_asleep(bool asleep)
 bool muse_state_asleep(void)
 {
     return s_asleep;
+}
+
+void muse_state_set_keep_awake(bool on)
+{
+    s_keep_awake = on;
+}
+
+bool muse_state_keep_awake(void)
+{
+    return s_keep_awake;
 }
 
 void muse_state_wait_awake(uint32_t timeout_ms)

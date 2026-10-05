@@ -65,3 +65,11 @@ CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
 # actually slept, and how long each power lock kept the chip awake.
 CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
 CONFIG_PM_PROFILING=y
+
+# Lua apps from Muse (lua.run): a top bar over a 480x284 area. The 48 px font
+# is for big numbers, such as a timer's.
+CONFIG_MUSE_LUA=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
+
+# Chinese and Japanese in captions and Lua apps (about 850 KB of flash).
+CONFIG_MUSE_CJK_FONT=y

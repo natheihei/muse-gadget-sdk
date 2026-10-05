@@ -368,6 +368,29 @@ update minimp3.
 The Apache License doesn't cover the Jollybot avatar in `avatar/`. Its files
 carry only a Meta copyright line; don't add the Apache header to them.
 
+## Lua apps
+
+With `CONFIG_MUSE_LUA` (on for the Waveshare LCD-3.5), Muse can run a Lua app
+on the screen: it registers `lua.help`, `lua.run {script, title, source}`,
+`lua.call {name, args}` (a function the app exposes, for voice control),
+`lua.stop` and `lua.status` with Link. `components/muse/muse_lua_api.md` is the guide
+`lua.help` returns, so it's the contract with Muse: change it with the API.
+`muse_lua.c` runs each app in its own Lua 5.4 state (`components/lua`,
+unmodified upstream) on one runner task; `muse_lua_ui.c` draws the top bar,
+whose X closes the app, and the widgets.
+
+To run an app over USB, without Muse (needs pyserial, which the ESP-IDF
+environment has):
+
+```sh
+python3 tools/muse/lua.py run app.lua    # prints lua.run's reply: its log, or the error and line
+python3 tools/muse/lua.py status         # also stop, and help for the guide
+```
+
+`tests/test_muse_lua.py` runs the guide's example on the host against a mock
+of the API (`tests/lua/muse_lua_mock.lua`). A `MUSE_BENCH=1` build can
+screenshot an app with `tools/muse/snap.py`.
+
 ## First boot and pairing
 
 The status LED (or the edge bars or avatar on display boards) shows the state:

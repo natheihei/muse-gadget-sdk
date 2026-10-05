@@ -36,6 +36,9 @@
 #include "muse_chat.h"
 #include "muse_console.h"
 #include "muse_link.h"
+#if CONFIG_MUSE_LUA
+#include "muse_lua.h"
+#endif
 #include "muse_mem.h"
 #include "muse_menu.h"
 #include "muse_settings.h"
@@ -304,7 +307,7 @@ static void check_sleep(void)
     }
     int after = muse_settings_sleep_s();
     float mode_t;
-    if (after && !muse_state_asleep() && muse_state_mode(&mode_t) == MUSE_MODE_IDLE
+    if (after && !muse_state_asleep() && !muse_state_keep_awake() && muse_state_mode(&mode_t) == MUSE_MODE_IDLE
         && muse_state_idle_secs() > after) {
         set_asleep(true, "auto-sleep");
     }
@@ -611,6 +614,11 @@ static bool console_command(char *line, bool whole)
         set_face(line + 5);
         return true;
     }
+#if CONFIG_MUSE_LUA
+    if (muse_lua_console(line, whole)) {
+        return true;
+    }
+#endif
     if (strncmp(line, "chat", 4) != 0) {
         return false;
     }
@@ -688,6 +696,17 @@ esp_err_t muse_input_start(QueueHandle_t queue)
     /* Bench-test and setup console; the input still works if it can't start. */
     xTaskCreate(serial_task, "muse_serial", 3584, NULL, 5, NULL);
     return ESP_OK;
+}
+
+void muse_input_touch_talk(bool down)
+{
+    static bool held;
+    if (down == held || !s_queue) {
+        return;
+    }
+    held = down;
+    muse_state_poke();
+    post(down ? MUSE_PTT_DOWN : MUSE_PTT_UP, false);
 }
 
 void muse_input_request_power_off(void)

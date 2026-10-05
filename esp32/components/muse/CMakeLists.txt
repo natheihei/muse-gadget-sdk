@@ -21,6 +21,7 @@
 # from idf_component.yml, where rules keep them out of Link-only builds.
 set(srcs)
 set(embed)
+set(embed_txt)
 if(CONFIG_MUSE_ENABLED)
     list(APPEND srcs
         "muse_app.c"
@@ -54,6 +55,10 @@ if(CONFIG_MUSE_ENABLED)
     list(APPEND srcs "muse_chat_text.c")
     if(CONFIG_MUSE_CJK_FONT)
         list(APPEND srcs "fonts/muse_font_cjk_16.c")   # captions' CJK fallback
+    endif()
+    if(CONFIG_MUSE_LUA)
+        list(APPEND srcs "muse_lua.c" "muse_lua_ui.c")
+        list(APPEND embed_txt "muse_lua_api.md")   # what lua.help tells Muse
     endif()
     # Your own character (tools/muse/AVATAR_RECIPE.md) stands in for the default
     # avatar when avatar/muse_pixel.c exists here; this avatar/ is gitignored. The
@@ -108,7 +113,7 @@ endif()
 set(muse_priv_requires
     esp_timer esp_driver_usb_serial_jtag esp_psram nvs_flash
     bt esp-tls mbedtls esp_app_format esp_http_client
-    noise_core minimp3
+    noise_core minimp3 lua
     esp_lcd esp_adc esp_driver_i2s esp_driver_ledc esp_driver_spi esp_driver_uart esp_wifi
     esp_driver_pcnt)
 list(APPEND muse_priv_requires camera)
@@ -117,6 +122,7 @@ idf_component_register(
     SRCS ${srcs}
     INCLUDE_DIRS "."
     EMBED_FILES ${embed}
+    EMBED_TXTFILES ${embed_txt}
     WHOLE_ARCHIVE   # muse_lv_mem.c provides symbols only LVGL references
     REQUIRES esp_driver_gpio esp_driver_i2c
     PRIV_REQUIRES ${muse_priv_requires}

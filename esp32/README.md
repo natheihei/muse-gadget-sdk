@@ -224,6 +224,16 @@ To work on the UI without a board, use the
 and avatar renderer in a 412 x 412 SenseCAP Watcher window, supports mouse and
 keyboard input, and can render scripted screenshots without a display server.
 
+On the Waveshare ESP32-S3-Touch-LCD-3.5, Muse can write a small Lua app and
+run it on the touch screen: ask it to put a recipe on your gadget, one step to
+a screen, with timers. Muse gets the API from the board itself (the `lua.help`
+command, [`components/muse/muse_lua_api.md`](components/muse/muse_lua_api.md)).
+A bar at the top keeps a mic, so you can still talk to Muse, and an X that
+closes the app. To try an app without Muse, run
+`python3 tools/muse/lua.py run app.lua`. Another board with a touch screen and
+PSRAM gets it with `CONFIG_MUSE_LUA=y` in its board file. With `CONFIG_MUSE_CJK_FONT` (also on
+for the LCD-3.5), apps show Chinese and Japanese as well as captions do.
+
 Replies from Muse are text: push-to-talk sends your voice note, Muse
 transcribes it and answers in writing, and boards with a screen show the
 answer as captions (Voice PE and reSpeaker Lite replies show up in the Muse app). Two

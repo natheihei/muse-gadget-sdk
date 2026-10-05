@@ -71,6 +71,10 @@ static QueueHandle_t s_queue;
 static volatile bool s_monitor;
 static volatile float s_monitor_db = -100.0f;
 static volatile bool s_chirp;
+static struct {
+    volatile int count;   /* tones still to play; set last */
+    int freq, ms, gap_ms;
+} s_beep;
 static volatile bool s_loopback;
 static volatile bool s_mp3test;
 
@@ -791,7 +795,7 @@ static void voice_task(void *arg)
             muse_input_event_t ev;
             bool asleep = muse_state_asleep();
             bool battery = muse_state_on_battery();
-            bool rest = asleep && battery && !s_chirp && !s_mp3test && !s_loopback;
+            bool rest = asleep && battery && !s_chirp && !s_mp3test && !s_loopback && !s_beep.count;
 #if HOLD_NOTES
             /* A press goes first: send_held() leaves it queued and returns
              * without backing off, so retrying before it's read would spin. */
@@ -821,6 +825,17 @@ static void voice_task(void *arg)
             if (s_chirp) {
                 s_chirp = false;
                 muse_audio_chirp(1);
+                pre_reset();
+            }
+            if (s_beep.count) {
+                int n = s_beep.count;
+                s_beep.count = 0;
+                for (int i = 0; i < n; i++) {
+                    if (i) {
+                        vTaskDelay(pdMS_TO_TICKS(s_beep.gap_ms));
+                    }
+                    muse_audio_tone(s_beep.freq, s_beep.ms);
+                }
                 pre_reset();
             }
             if (s_mp3test) {
@@ -913,6 +928,15 @@ float muse_voice_monitor_db(void)
 void muse_voice_request_chirp(void)
 {
     s_chirp = true;
+    muse_state_nudge();
+}
+
+void muse_voice_request_beep(int freq, int ms, int count, int gap_ms)
+{
+    s_beep.freq = freq;
+    s_beep.ms = ms;
+    s_beep.gap_ms = gap_ms;
+    s_beep.count = count;
     muse_state_nudge();
 }
 
